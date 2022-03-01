@@ -8,7 +8,6 @@
 
 // Perform computation, including reading/writing output files
 void compute(int procID, int nproc, char *inputFilename, double prob, int numIterations) {
-  // TODO Implement code here
-  // TODO Decide which processors should be reading/writing files
+    // TODO Implement code here
+    // TODO Decide which processors should be reading/writing files
 }
-

@@ -2,8 +2,7 @@
 #define _WIRE_ROUTE_H
 
 // Perform computation, including reading/writing output files
-void compute(int procID, int nproc, char *inputFilename, double prob,
-             int numIterations);
+void compute(int procID, int nproc, char *inputFilename, double prob, int numIterations);
 
 // Read input file
 void readInput(char *inputFilename);
