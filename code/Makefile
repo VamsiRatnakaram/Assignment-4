@@ -2,7 +2,7 @@ APP_NAME=wireroute
 OBJS += wireroute.o
 OBJS += main.o
 
-CXX = mpic++
+CXX = mpic++ -std=c++11
 CXXFLAGS = -I. -O3 #-Wall -Wextra
 
 default: $(APP_NAME)
