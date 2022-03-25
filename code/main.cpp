@@ -9,8 +9,6 @@
 int main(int argc, char *argv[]) {
     int procID;
     int nproc;
-    double startTime;
-    double endTime;
     double prob = 0.1;
     int numIterations = 5;
     char *inputFilename = NULL;
@@ -56,12 +54,10 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
 
     // Run computation
-    startTime = MPI_Wtime();
-    compute(procID, nproc, inputFilename, prob, numIterations);
-    endTime = MPI_Wtime();
+    double computeTime = compute(procID, nproc, inputFilename, prob, numIterations);
 
     // Cleanup
     MPI_Finalize();
-    printf("Elapsed time for proc %d: %f\n", procID, endTime - startTime);
+    printf("Elapsed time for proc %d: %f\n", procID, computeTime);
     return 0;
 }

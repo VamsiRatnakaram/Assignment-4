@@ -257,11 +257,13 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
 }
 
 // Perform computation, including reading/writing output files
-void compute(int procID, int nproc, char *inputFilename, double prob, int numIterations) {
+int compute(int procID, int nproc, char *inputFilename, double prob, int numIterations) {
     // TODO Implement code here
     // TODO Decide which processors should be reading/writing files
     const int root = 0; // Set the rank 0 process as the root process
     int tag = 0;        // Use the same tag
+    double startTime;
+    double endTime;
     MPI_Status status;
     MPI_Datatype wireStruct;
     MPI_Datatype costStruct;
@@ -272,7 +274,7 @@ void compute(int procID, int nproc, char *inputFilename, double prob, int numIte
 
     if (!input) {
         printf("Unable to open file: %s.\n", inputFilename);
-        return;
+        return -1;
     }
 
     int dim_x, dim_y;
@@ -323,6 +325,9 @@ void compute(int procID, int nproc, char *inputFilename, double prob, int numIte
     // Wire allocation per Node
     wire_t *node_wires = (wire_t *)calloc(num_of_wires/nproc, sizeof(wire_t));
 
+    // StartTime after intialization
+    startTime = MPI_Wtime();
+
     for (int i = 0; i < numIterations; i++) {
         // Scatterv wires to nodes
         MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
@@ -344,6 +349,8 @@ void compute(int procID, int nproc, char *inputFilename, double prob, int numIte
         createCostMap(wires, costs, dim_x, dim_y, num_of_wires);
     }
 
+    // EndTime before I/O
+    endTime = MPI_Wtime();
 
     // Output Files I/O
     if (procID == root) {
@@ -367,14 +374,14 @@ void compute(int procID, int nproc, char *inputFilename, double prob, int numIte
         FILE *costFile = fopen(ocf, "w");
         if (!costFile) {
             printf("Unable to open file: %s.\n", ocf);
-            return;
+            return -1;
         }
         const char *owf = OutputWiresFile.c_str();
         FILE *outFile = fopen(owf, "w");
         if (!outFile) {
             printf("sad\n");
             printf("Unable to open file: %s.\n", owf);
-            return;
+            return -1;
         }
 
         // Write to cost file
@@ -423,8 +430,11 @@ void compute(int procID, int nproc, char *inputFilename, double prob, int numIte
         }
 
         // Close all files
+        free(wires);
+        free(costs);
         fclose(input);
         fclose(costFile);
         fclose(outFile);
     }
+    return endTime-startTime;
 }

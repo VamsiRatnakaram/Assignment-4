@@ -26,7 +26,7 @@ typedef struct { /* Define the data structure for wire here */
 typedef int cost_t;
 
 // Perform computation, including reading/writing output files
-void compute(int procID, int nproc, char *inputFilename, double prob, int numIterations);
+int compute(int procID, int nproc, char *inputFilename, double prob, int numIterations);
 
 // Read input file
 void readInput(char *inputFilename);
