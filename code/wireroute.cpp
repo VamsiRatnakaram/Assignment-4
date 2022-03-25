@@ -292,54 +292,54 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         initialize(wires,costs,dim_x,dim_y,num_of_wires);
     }
 
-    // Create MPI Structs to send using MPI
-    defineWireStruct(&wireStruct);
-    // Figuring out scatterv and gatherv distribution
-    int *counts = (int*)calloc(nproc, sizeof(int)); // array describing how many elements to send to each process
-    int rem = (num_of_wires)%nproc; // elements remaining after division among processes
-    int *displacements = (int*)calloc(nproc, sizeof(int)); // array describing the displacements where each segment begins
-    int sum = 0;                // Sum of counts. Used to calculate displacements
+    // // Create MPI Structs to send using MPI
+    // defineWireStruct(&wireStruct);
+    // // Figuring out scatterv and gatherv distribution
+    // int *counts = (int*)calloc(nproc, sizeof(int)); // array describing how many elements to send to each process
+    // int rem = (num_of_wires)%nproc; // elements remaining after division among processes
+    // int *displacements = (int*)calloc(nproc, sizeof(int)); // array describing the displacements where each segment begins
+    // int sum = 0;                // Sum of counts. Used to calculate displacements
 
-    // calculate send counts and displacements
-    for (int k = 0; k < nproc; k++) {
-        counts[k] = num_of_wires/nproc;
-        if (rem > 0) {
-            counts[k]++;
-            rem--;
-        }
+    // // calculate send counts and displacements
+    // for (int k = 0; k < nproc; k++) {
+    //     counts[k] = num_of_wires/nproc;
+    //     if (rem > 0) {
+    //         counts[k]++;
+    //         rem--;
+    //     }
 
-        displacements[k] = sum;
-        sum += counts[k];
-    }
+    //     displacements[k] = sum;
+    //     sum += counts[k];
+    // }
 
-    // Wire allocation per Node
-    wire_t *node_wires = (wire_t *)calloc(counts[procID], sizeof(wire_t));
+    // // Wire allocation per Node
+    // wire_t *node_wires = (wire_t *)calloc(counts[procID], sizeof(wire_t));
 
     // StartTime after intialization
     startTime = MPI_Wtime();
 
     // Scatterv wires to nodes
-    MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
+    // MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
 
     for (int i = 0; i < numIterations; i++) {
 
         // Broadcast Data to all Nodes
-        MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
+        // MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
 
         // update function HERE
-        update(node_wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob));
-        if (procID == root) {
-            old_wires = wires;
-        }
+        update(wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob));
+        // if (procID == root) {
+        //     old_wires = wires;
+        // }
         // Gather and Collect the data for wires array
-        MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
+        // MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
 
         // Recollect Wire Data and create new Cost map based on data from each Node
         // Don't need costs anymore we will rebuild it
 
-        if (procID == root) {
-            createCostMap(old_wires,wires, costs, dim_x, dim_y, num_of_wires);
-        } 
+        // if (procID == root) {
+        //     createCostMap(old_wires,wires, costs, dim_x, dim_y, num_of_wires);
+        // } 
     }
 
     // EndTime before I/O
