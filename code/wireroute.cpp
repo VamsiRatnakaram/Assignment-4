@@ -66,8 +66,9 @@ static void initialize(wire_t *wires, int *costs, int dim_x,int dim_y,int num_wi
     }
 }
 
-static void createCostMap(wire_t *wires, int *costs, int dim_x,int dim_y,int num_wires) {
+static void createCostMap(wire_t *old_wires,wire_t *wires, int *costs, int dim_x,int dim_y,int num_wires) {
     for (int i = 0; i < num_wires; i++){
+        update_route(old_wires[i],costs,dim_x,dim_y,-1);
         update_route(wires[i],costs,dim_x,dim_y,1);
     }
 }
@@ -127,14 +128,14 @@ void defineWireStruct(MPI_Datatype *tstype) {
     MPI_Type_commit(tstype);
 }
 
-static int update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob) {
+static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob) {
     // Find better cost for each wire
-    int count = 0;
     for (int i = 0; i < num_wires; i+=1) {
         int numBends = wires[i].numBends;
         if (numBends == 0) {
             continue;
         }
+
         // Wires we are modifying
         wire_t oldWire = wires[i];
         int start_x = oldWire.start_x;
@@ -150,6 +151,41 @@ static int update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires
         }
         if(start_y > end_y){
             sign_y=-1;
+        }
+
+        // Create Random Path
+        // Horizontal first
+        wire_t hWire = oldWire;
+        hWire.bend0x = (rand() % (abs(end_x-start_x)))*sign_x + start_x;
+        hWire.bend0y = start_y;
+        if (hWire.bend0x == end_x) {
+            hWire.numBends = 1;
+        }
+        else {
+            hWire.numBends = 2;
+            hWire.bend1x = hWire.bend0x;
+            hWire.bend1y = end_y;
+        }
+        // Vertical First
+        wire_t vWire = oldWire;
+        vWire.bend0y = (rand() % (abs(end_y-start_y)))*sign_y + start_y;
+        vWire.bend0x = start_x;
+        if (vWire.bend0y == end_y) {
+            vWire.numBends = 1;
+        }
+        else {
+            vWire.numBends = 2;
+            vWire.bend1y = vWire.bend0y;
+            vWire.bend1x = end_x;
+        }
+        int h_or_v = rand() % 2;
+        int randomProb = rand() % 100;
+        // Replace best wire with random wire
+        if (randomProb < random_prob) {
+            wire_t randomWire = (h_or_v) ? hWire : vWire;
+            update_route(randomWire,costs,dim_x,dim_y,1);
+            wires[i] = randomWire;
+            continue;
         }
 
         total_cost_t currCost = calculateCost(oldWire, costs, dim_x, dim_y);
@@ -208,45 +244,9 @@ static int update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires
             }
         }
 
-        // Create Random Path
-        // Horizontal first
-        wire_t hWire = oldWire;
-        hWire.bend0x = (rand() % (abs(end_x-start_x)))*sign_x + start_x;
-        hWire.bend0y = start_y;
-        if (hWire.bend0x == end_x) {
-            hWire.numBends = 1;
-        }
-        else {
-            hWire.numBends = 2;
-            hWire.bend1x = hWire.bend0x;
-            hWire.bend1y = end_y;
-        }
-        // Vertical First
-        wire_t vWire = oldWire;
-        vWire.bend0y = (rand() % (abs(end_y-start_y)))*sign_y + start_y;
-        vWire.bend0x = start_x;
-        if (vWire.bend0y == end_y) {
-            vWire.numBends = 1;
-        }
-        else {
-            vWire.numBends = 2;
-            vWire.bend1y = vWire.bend0y;
-            vWire.bend1x = end_x;
-        }
-        int h_or_v = rand() % 2;
-        int randomProb = rand() % 100;
-        // Replace best wire with random wire
-        if (randomProb < random_prob) {
-            wire_t randomWire = (h_or_v) ? hWire : vWire;
-            update_route(randomWire,costs,dim_x,dim_y,1);
-            wires[i] = randomWire;
-            count++;
-        }else{
-            update_route(bestWire,costs,dim_x,dim_y,1);
-            wires[i] = bestWire;
-        }
+        update_route(bestWire,costs,dim_x,dim_y,1);
+        wires[i] = bestWire;
     }
-    return count;
 }
 
 // Perform computation, including reading/writing output files
@@ -276,6 +276,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     fscanf(input, "%d\n", &num_of_wires);
 
     wire_t *wires = (wire_t *)calloc(num_of_wires, sizeof(wire_t));
+    wire_t *old_wires = (wire_t *)calloc(num_of_wires, sizeof(wire_t));
     /* Read the grid dimension and wire information from file */
 
     cost_t *costs = (cost_t *)calloc(dim_x * dim_y, sizeof(cost_t));
@@ -287,7 +288,6 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         for (int i = 0; i < num_of_wires; i++) {
             fscanf(input, "%d %d %d %d\n", &(wires[i].start_x), &(wires[i].start_y), &(wires[i].end_x), &(wires[i].end_y));
         }
-
         /* Conduct initial wire placement */
         initialize(wires,costs,dim_x,dim_y,num_of_wires);
     }
@@ -320,7 +320,6 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
 
     // Scatterv wires to nodes
     MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
-    int count = 0;
 
     for (int i = 0; i < numIterations; i++) {
 
@@ -328,8 +327,10 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
 
         // update function HERE
-        count += update(node_wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob));
-
+        update(node_wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob));
+        if (procID == root) {
+            old_wires = wires;
+        }
         // Gather and Collect the data for wires array
         MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
 
@@ -337,15 +338,12 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         // Don't need costs anymore we will rebuild it
 
         if (procID == root) {
-            free(costs);
-            costs = (cost_t *)calloc(dim_x * dim_y, sizeof(cost_t));
-            createCostMap(wires, costs, dim_x, dim_y, num_of_wires);
+            createCostMap(old_wires,wires, costs, dim_x, dim_y, num_of_wires);
         } 
     }
 
     // EndTime before I/O
     endTime = MPI_Wtime();
-    printf("%d\n", count/5); 
 
     // Output Files I/O
     if (procID == root) {
