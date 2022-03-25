@@ -29,8 +29,7 @@ static void update_route(wire_t wire,int *costs,int dim_x,int dim_y,int updateVa
             }
             if(start_x==end_x){
                 for(int j = min(start_y,end_y); j < max(end_y,start_y)+1; j++){
-                    int temp_bendy = (i == 1) ? wire.bend0y : wire.bend1y; // TO-DO check correctness of this line
-                    //if (i>0 && curr.bend[i-1].y==j){
+                    int temp_bendy = (i == 1) ? wire.bend0y : wire.bend1y; 
                     if (i>0 && temp_bendy==j) {
                         continue;
                     }
@@ -39,8 +38,7 @@ static void update_route(wire_t wire,int *costs,int dim_x,int dim_y,int updateVa
                 start_y=end_y;
             }else{
                 for(int k = min(start_x,end_x); k < max(end_x,start_x)+1; k++){
-                    int temp_bendx = (i == 1) ? wire.bend0x : wire.bend1x; // TO-DO check correctness of this line
-                    // if (i>0 && curr.bend[i-1].x==k){
+                    int temp_bendx = (i == 1) ? wire.bend0x : wire.bend1x; 
                     if (i>0 && temp_bendx==k) {
                         continue;
                     }
@@ -399,8 +397,8 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
                     end_x=curr.end_x;
                     end_y=curr.end_y;
                 }else{
-                    end_x = (i == 1) ? curr.bend0x : curr.bend1x;
-                    end_y = (i == 1) ? curr.bend0y : curr.bend1y;
+                    end_x = (i != 1) ? curr.bend0x : curr.bend1x;
+                    end_y = (i != 1) ? curr.bend0y : curr.bend1y;
                 }
                 if(start_x==end_x){
                     int sign = start_y < end_y ? 1 : -1;
