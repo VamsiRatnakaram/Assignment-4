@@ -188,6 +188,95 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
             continue;
         }
 
+        // int *h_cost = (int*)calloc(abs(end_x - start_x),sizeof(int))
+        // int *v_cost = (int*)calloc(abs(end_y - start_y),sizeof(int))
+        // int *h_max = (int*)calloc(abs(end_x - start_x),sizeof(int))
+        // int *v_max = (int*)calloc(abs(end_y - start_y),sizeof(int))
+
+        // //costs of all routes in cache friendly and fast way
+        // int target= (abs(end_y - start_y)+1)*(abs(end_x-start_x)+1)
+        // for (int j = 0; j < abs(end_y - start_y)+1; j++) {
+        //     for(int i = 0;i < abs(end_x-start_x)+1;i++){
+        //         int curr_tile = currCost=costs[(j + cost_y)*dim_y + i + cost_x]+1;
+
+
+        //         if((i==0 && j==0) || (i==abs(end_x-start_x) && j==abs(end_y - start_y))): continue;
+        //         if(i==0){
+        //             for(k=i;k<abs(end_y-start_y)+1;k++){
+        //                 v_cost[k-1]+=curr_tile;
+        //                 v_max[k-1]=max(v_max[k-1],curr_tile);
+        //            }
+        //         }else if(j==0){
+        //            for(k=i;k<abs(end_x-start_x)+1;k++){
+        //                 h_cost[k-1]+=curr_tile;
+        //                 h_max[k-1]=max(h_max[k-1],curr_tile);
+        //            }
+        //         }else if(i==abs(end_x-start_x)){
+        //             h_cost[i-1]+=curr_tile;
+        //             h_max[i-1]=max(h_max[i-1],curr_tile);
+        //             for(k=j;k>0;k--){
+        //                 v_cost[k-1]+=curr_tile;
+        //                 v_max[k-1]=max(v_max[k-1],curr_tile);
+        //             }
+        //         }else if(j==abs(end_y - start_y)){
+        //             v_cost[j-1]+=curr_tile;
+        //             v_max[j-1]=max(v_max[j-1],curr_tile);
+        //             for(k=i;k>0;k--){
+        //                 h_cost[k-1]+=curr_tile;
+        //                 h_max[k-1]=max(h_max[k-1],curr_tile);
+        //             }
+        //         }
+        //         else{
+        //             h_cost[i-1]+=curr_tile;
+        //             v_cost[j-1]+=curr_tile;
+        //             h_max[i-1]=max(h_max[i-1],curr_tile);
+        //             v_max[j-1]=max(v_max[j-1],curr_tile);
+        //         }
+        //     }
+        // }
+
+        // int path_cost = h_cost[0];
+        // int max_cost = h_max[0];
+        // int best = 0; //poss in arr
+        // int v_h = 0; //h=0;v=1
+        // for (int j = 0; j < abs(end_y - start_y); j++) {
+        //     int cur_max = v_max[j];
+        //     int cur_cost = v_cost[j];
+        //     if(cur_max < max_cost){
+        //         best=j;
+        //         v_h=1;
+        //     }else if(cur_max == max_cost && cur_cost < path_cost){
+        //         best=j;
+        //         v_h=1; 
+        //     }
+        // }
+        // for (int j = 0; j < abs(end_x - start_x); j++) {
+        //     int cur_max = h_max[j];
+        //     int cur_cost = h_cost[j];
+        //     if(cur_max < max_cost){
+        //         best=j;
+        //         v_h=0;
+        //     }else if(cur_max == max_cost && cur_cost < path_cost){
+        //         best=j;
+        //         v_h=0; 
+        //     }
+        // }
+        // wire_t bestWire = oldWire;
+        // if(v_h==0){ //horizontal path is best
+        //     if(best== abs(end_x-start_x)){
+        //         bestWire.numBends=1;
+        //         bestWire.bend0x=;
+        //         bestWire.bend0y=;
+        //     }else{
+
+        //     }
+        // }else{ //vertical path is best
+        //     if(best== abs(end_x-start_x)){
+
+        //     }else{
+                
+        //     }
+        // }
         total_cost_t currCost = calculateCost(oldWire, costs, dim_x, dim_y);
         wire_t newWire = oldWire;
         wire_t bestWire = oldWire;
@@ -243,7 +332,6 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
                 }
             }
         }
-
         update_route(bestWire,costs,dim_x,dim_y,1);
         wires[i] = bestWire;
     }
@@ -293,53 +381,52 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     }
 
     // // Create MPI Structs to send using MPI
-    // defineWireStruct(&wireStruct);
+    defineWireStruct(&wireStruct);
     // // Figuring out scatterv and gatherv distribution
-    // int *counts = (int*)calloc(nproc, sizeof(int)); // array describing how many elements to send to each process
-    // int rem = (num_of_wires)%nproc; // elements remaining after division among processes
-    // int *displacements = (int*)calloc(nproc, sizeof(int)); // array describing the displacements where each segment begins
-    // int sum = 0;                // Sum of counts. Used to calculate displacements
+    int *counts = (int*)calloc(nproc, sizeof(int)); // array describing how many elements to send to each process
+    int rem = (num_of_wires)%nproc; // elements remaining after division among processes
+    int *displacements = (int*)calloc(nproc, sizeof(int)); // array describing the displacements where each segment begins
+    int sum = 0;                // Sum of counts. Used to calculate displacements
 
     // // calculate send counts and displacements
-    // for (int k = 0; k < nproc; k++) {
-    //     counts[k] = num_of_wires/nproc;
-    //     if (rem > 0) {
-    //         counts[k]++;
-    //         rem--;
-    //     }
+    for (int k = 0; k < nproc; k++) {
+        counts[k] = num_of_wires/nproc;
+        if (rem > 0) {
+            counts[k]++;
+            rem--;
+        }
 
-    //     displacements[k] = sum;
-    //     sum += counts[k];
-    // }
+        displacements[k] = sum;
+        sum += counts[k];
+    }
 
     // // Wire allocation per Node
-    // wire_t *node_wires = (wire_t *)calloc(counts[procID], sizeof(wire_t));
+    wire_t *node_wires = (wire_t *)calloc(counts[procID], sizeof(wire_t));
 
     // StartTime after intialization
     startTime = MPI_Wtime();
 
     // Scatterv wires to nodes
-    // MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
+    MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
 
     for (int i = 0; i < numIterations; i++) {
 
-        // Broadcast Data to all Nodes
-        // MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
+        //Broadcast Data to all Nodes
+        MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
 
-        // update function HERE
+        //update function HERE
         update(wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob));
-        // if (procID == root) {
-        //     old_wires = wires;
-        // }
-        // Gather and Collect the data for wires array
-        // MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
+        if (procID == root) {
+            old_wires = wires;
+        }
+        //Gather and Collect the data for wires array
+        MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
 
         // Recollect Wire Data and create new Cost map based on data from each Node
-        // Don't need costs anymore we will rebuild it
-
-        // if (procID == root) {
-        //     createCostMap(old_wires,wires, costs, dim_x, dim_y, num_of_wires);
-        // } 
+    
+        if (procID == root) {
+            createCostMap(old_wires,wires, costs, dim_x, dim_y, num_of_wires);
+        } 
     }
 
     // EndTime before I/O
@@ -399,8 +486,8 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
                     end_x=curr.end_x;
                     end_y=curr.end_y;
                 }else{
-                    end_x = (i == 1) ? curr.bend0x : curr.bend1x;
-                    end_y = (i == 1) ? curr.bend0y : curr.bend1y;
+                    end_x = (i != 1) ? curr.bend0x : curr.bend1x;
+                    end_y = (i != 1) ? curr.bend0y : curr.bend1y;
                 }
                 if(start_x==end_x){
                     int sign = start_y < end_y ? 1 : -1;
