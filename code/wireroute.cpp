@@ -20,11 +20,12 @@ static void update_route(wire_t wire,int *costs,int dim_x,int dim_y,int updateVa
         int end_x,end_y;
         for(int i=0; i < wire.numBends+1; i++){
             if(i==wire.numBends){
-                end_x=wire.end_x;
-                end_y=wire.end_y;
+                end_x = wire.end_x;
+                end_y = wire.end_y;
+
             }else{
-                end_x = (i == 1) ? wire.bend0x : wire.bend1x;
-                end_y = (i == 1) ? wire.bend0y : wire.bend1y;
+                end_x = (i != 1) ? wire.bend0x : wire.bend1x;
+                end_y = (i != 1) ? wire.bend0y : wire.bend1y;
             }
             if(start_x==end_x){
                 for(int j = min(start_y,end_y); j < max(end_y,start_y)+1; j++){
@@ -83,8 +84,8 @@ static total_cost_t calculateCost(wire_t curr, int *costs, int dim_x, int dim_y)
             end_x=curr.end_x;
             end_y=curr.end_y;
         }else{
-            end_x = (i == 1) ? curr.bend0x : curr.bend1x;
-            end_y = (i == 1) ? curr.bend0y : curr.bend1y;
+            end_x = (i != 1) ? curr.bend0x : curr.bend1x;
+            end_y = (i != 1) ? curr.bend0y : curr.bend1y;
         }
         if(start_x==end_x){
             for(int j = min(start_y,end_y); j < max(end_y,start_y)+1; j++){
@@ -126,18 +127,9 @@ void defineWireStruct(MPI_Datatype *tstype) {
     MPI_Type_commit(tstype);
 }
 
-void defineCostStruct(MPI_Datatype *tstype) {
-    const int count = 2;
-    int          blocklens[count] = {1,1};
-    MPI_Datatype types[9] = {MPI_INT, MPI_INT};
-    MPI_Aint     disps[count] = {offsetof(total_cost_t,cost), offsetof(total_cost_t,maxValue)};
-
-    MPI_Type_create_struct(count, blocklens, disps, types, tstype);
-    MPI_Type_commit(tstype);
-}
-
-static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int num_of_threads, int threadNum) {
+static int update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob) {
     // Find better cost for each wire
+    int count = 0;
     for (int i = 0; i < num_wires; i+=1) {
         int numBends = wires[i].numBends;
         if (numBends == 0) {
@@ -170,13 +162,13 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
             if (j < abs(end_x - start_x)) { // Horizontal Path
                 newWire.bend0x = start_x + sign_x*(j + 1);
                 newWire.bend0y = start_y;
-                if (start_x + sign_x*(j + 1)== end_x) {
+                if (newWire.bend0x == end_x) {
                     // One Bend Case
                     newWire.numBends = 1;
                 }
                 else {
                     // Two Bend Case
-                    newWire.bend1x = start_x +sign_x*(j + 1);
+                    newWire.bend1x = newWire.bend0x;
                     newWire.bend1y = end_y;
                     newWire.numBends = 2;
                 }
@@ -190,17 +182,17 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
                     bestWire = newWire; 
                 }
             }
-            else { // Once done with all horizontal paths, we can compute veritical paths
+            else { // Once done with all horizontal paths, we can compute vertical paths
                 int modified_j = j - abs(end_x - start_x);
                 newWire.bend0y = start_y + sign_y*(modified_j + 1);
                 newWire.bend0x = start_x;
-                if (start_y + sign_y*(modified_j + 1) == end_y) {
+                if ( newWire.bend0y == end_y) {
                     // One Bend Case
                     newWire.numBends = 1;
                 }
                 else {
                     // Two Bend Case
-                    newWire.bend1y = start_y + sign_y*(modified_j + 1);
+                    newWire.bend1y = newWire.bend0y;
                     newWire.bend1x = end_x;
                     newWire.numBends = 2;
                 }
@@ -216,7 +208,6 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
             }
         }
 
-        // TO-DO: move random path before calculations
         // Create Random Path
         // Horizontal first
         wire_t hWire = oldWire;
@@ -249,15 +240,17 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
             wire_t randomWire = (h_or_v) ? hWire : vWire;
             update_route(randomWire,costs,dim_x,dim_y,1);
             wires[i] = randomWire;
+            count++;
         }else{
             update_route(bestWire,costs,dim_x,dim_y,1);
             wires[i] = bestWire;
         }
     }
+    return count;
 }
 
 // Perform computation, including reading/writing output files
-int compute(int procID, int nproc, char *inputFilename, double prob, int numIterations) {
+double compute(int procID, int nproc, char *inputFilename, double prob, int numIterations) {
     // TODO Implement code here
     // TODO Decide which processors should be reading/writing files
     const int root = 0; // Set the rank 0 process as the root process
@@ -266,7 +259,6 @@ int compute(int procID, int nproc, char *inputFilename, double prob, int numIter
     double endTime;
     MPI_Status status;
     MPI_Datatype wireStruct;
-    MPI_Datatype costStruct;
 
     FILE *input;
 
@@ -302,8 +294,6 @@ int compute(int procID, int nproc, char *inputFilename, double prob, int numIter
 
     // Create MPI Structs to send using MPI
     defineWireStruct(&wireStruct);
-    defineCostStruct(&costStruct);
-
     // Figuring out scatterv and gatherv distribution
     int *counts = (int*)calloc(nproc, sizeof(int)); // array describing how many elements to send to each process
     int rem = (num_of_wires)%nproc; // elements remaining after division among processes
@@ -323,34 +313,39 @@ int compute(int procID, int nproc, char *inputFilename, double prob, int numIter
     }
 
     // Wire allocation per Node
-    wire_t *node_wires = (wire_t *)calloc(num_of_wires/nproc, sizeof(wire_t));
+    wire_t *node_wires = (wire_t *)calloc(counts[procID], sizeof(wire_t));
 
     // StartTime after intialization
     startTime = MPI_Wtime();
 
+    // Scatterv wires to nodes
+    MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
+    int count = 0;
+
     for (int i = 0; i < numIterations; i++) {
-        // Scatterv wires to nodes
-        MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
 
         // Broadcast Data to all Nodes
-        MPI_Bcast(costs, dim_x * dim_y, costStruct, root, MPI_COMM_WORLD);
+        MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
 
         // update function HERE
-        update(node_wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob), nproc, procID);
+        count += update(node_wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob));
 
         // Gather and Collect the data for wires array
         MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
 
         // Recollect Wire Data and create new Cost map based on data from each Node
         // Don't need costs anymore we will rebuild it
-        free(costs);
-        costs = (cost_t *)calloc(dim_x * dim_y, sizeof(cost_t));
 
-        createCostMap(wires, costs, dim_x, dim_y, num_of_wires);
+        if (procID == root) {
+            free(costs);
+            costs = (cost_t *)calloc(dim_x * dim_y, sizeof(cost_t));
+            createCostMap(wires, costs, dim_x, dim_y, num_of_wires);
+        } 
     }
 
     // EndTime before I/O
     endTime = MPI_Wtime();
+    printf("%d\n", count/5); 
 
     // Output Files I/O
     if (procID == root) {
