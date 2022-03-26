@@ -336,7 +336,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
 
         // update function HERE
-        update(node_wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob),procID);
+        update(node_wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob),procID);
         if (procID == root) {
             old_wires = wires;
         }
