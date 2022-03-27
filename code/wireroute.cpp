@@ -357,8 +357,6 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     MPI_Status status;
     MPI_Datatype wireStruct;
 
-    int batch_size = num_of_wires/nproc;
-
     FILE *input;
 
     input = fopen(inputFilename, "r");
@@ -393,6 +391,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         /* Conduct initial wire placement */
         initialize(wires,costs,dim_x,dim_y,num_of_wires);
     }
+    int batch_size = num_of_wires/nproc;
 
     // Create MPI Structs to send using MPI
     defineWireStruct(&wireStruct);
