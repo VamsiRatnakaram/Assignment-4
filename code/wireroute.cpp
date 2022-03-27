@@ -325,7 +325,7 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
             // Synch Recieve
             int recvProc = (procID == nproc - 1) ? 0 : procID + 1;
             MPI_Recv(recvBuf, batch_size*nproc, wireValidStruct, recvProc, recvProc, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
+            MPI_Wait(&request,MPI_STATUS_IGNORE);
             // Update Wires that you recieved
             for (int k = 0; k < nproc*batch_size; k++) {
                 if (k/batch_size == procID) {
