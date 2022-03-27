@@ -369,9 +369,10 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     int dim_x, dim_y;
     int num_of_wires;
 
-    fscanf(input, "%d %d\n", &dim_x, &dim_y);
-    fscanf(input, "%d\n", &num_of_wires);
-
+    int i = fscanf(input, "%d %d\n", &dim_x, &dim_y);
+    int j = fscanf(input, "%d\n", &num_of_wires);
+    (void)i;
+    (void)j;
     wire_t *wires = (wire_t *)calloc(num_of_wires, sizeof(wire_t));
     /* Read the grid dimension and wire information from file */
 
@@ -384,7 +385,8 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     if (procID == root) {
         /* Initailize additional data structures needed in the algorithm */
         for (int i = 0; i < num_of_wires; i++) {
-            fscanf(input, "%d %d %d %d\n", &(wires[i].start_x), &(wires[i].start_y), &(wires[i].end_x), &(wires[i].end_y));
+            int k = fscanf(input, "%d %d %d %d\n", &(wires[i].start_x), &(wires[i].start_y), &(wires[i].end_x), &(wires[i].end_y));
+            (void)k;
         }
         /* Conduct initial wire placement */
         initialize(wires,costs,dim_x,dim_y,num_of_wires);
@@ -434,7 +436,9 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     if (procID == root) {
         /* Write wires and costs to files */
         char resolved_path[PATH_MAX];
-        realpath(inputFilename, resolved_path);
+        char *a;
+        a = realpath(inputFilename, resolved_path);
+        (void)a;
         char *base = basename(resolved_path);
         std::string baseS = std::string(base);
         size_t lastindex = baseS.find_last_of("."); 
@@ -516,6 +520,8 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         printf("Sum Of Squares: %d\n", sumOfSquares);
 
         // Close all files
+        free(counts);
+        free(displacements);
         free(sendBuf);
         free(recvBuf);
         free(wires);
