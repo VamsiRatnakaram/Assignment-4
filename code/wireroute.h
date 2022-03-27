@@ -34,6 +34,7 @@ typedef struct { /* Define the data structure for wire here */
     int bend1x;
     int bend1y;
     int valid;
+    int wireIndex;
 } wireValid_t;
 
 typedef int cost_t;

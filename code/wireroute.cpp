@@ -146,10 +146,10 @@ void defineWireStruct(MPI_Datatype *tstype) {
 }
 
 void defineWireValidStruct(MPI_Datatype *tstype) {
-    const int count = 10;
-    int          blocklens[count] = {1,1,1,1,1,1,1,1,1,1};
-    MPI_Datatype types[10] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
-    MPI_Aint     disps[count] = {offsetof(wireValid_t,start_x), offsetof(wireValid_t,start_y), offsetof(wireValid_t,end_x), offsetof(wireValid_t,end_y), offsetof(wireValid_t,numBends), offsetof(wireValid_t,bend0x), offsetof(wireValid_t,bend0y), offsetof(wireValid_t,bend1x), offsetof(wireValid_t,bend1y), offsetof(wireValid_t,valid)};
+    const int count = 11;
+    int          blocklens[count] = {1,1,1,1,1,1,1,1,1,1,1};
+    MPI_Datatype types[11] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
+    MPI_Aint     disps[count] = {offsetof(wireValid_t,start_x), offsetof(wireValid_t,start_y), offsetof(wireValid_t,end_x), offsetof(wireValid_t,end_y), offsetof(wireValid_t,numBends), offsetof(wireValid_t,bend0x), offsetof(wireValid_t,bend0y), offsetof(wireValid_t,bend1x), offsetof(wireValid_t,bend1y), offsetof(wireValid_t,valid), offsetof(wireValid_t,wireIndex)};
 
     MPI_Type_create_struct(count, blocklens, disps, types, tstype);
     MPI_Type_commit(tstype);
@@ -269,9 +269,10 @@ static wire_t wireValidToWire(wireValid_t wireValid) {
     return temp;
 }
 
-static wireValid_t wireToWireValid(wire_t wire, int valid) {
+static wireValid_t wireToWireValid(wire_t wire, int valid, int index) {
     wireValid_t temp;
     temp.valid = valid;
+    temp.wireIndex = index;
     temp.start_x = wire.start_x;
     temp.start_y = wire.start_y;
     temp.end_x = wire.end_x;
@@ -287,7 +288,6 @@ static wireValid_t wireToWireValid(wire_t wire, int valid) {
 static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc, int *displacements, int *counts, wireValid_t *sendBuf, wireValid_t *recvBuf) {
     // Find better cost for each wire
     (void)procID;
-    int f = 0;
     int rem = num_wires%nproc;
     MPI_Datatype wireStruct;
     defineWireStruct(&wireStruct);
@@ -305,7 +305,6 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
 
         update_route(newWire,costs,dim_x,dim_y,1);
         wires[i] = newWire;
-        newValidWire = wireToWireValid(newWire, 1);
 
         // If we are doing remainder wires
         if (procID < rem && i == displacements[procID] + counts[procID] - 1) {
@@ -313,55 +312,31 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
         }
 
         // Communication Here
-        memcpy(sendBuf, recvBuf, sizeof(recvBuf));
+        memcpy(sendBuf, recvBuf, nproc * sizeof(wireValid_t));
+        newValidWire = wireToWireValid(newWire, 1, i);
         sendBuf[procID] = newValidWire;
         // Asynch Send
         MPI_Request request;
         int sendProc = (procID == 0) ? nproc - 1 : procID - 1;
-        MPI_Isend(sendBuf, nproc, wireValidStruct, sendProc, 0, MPI_COMM_WORLD, &request);
+        MPI_Isend(sendBuf, nproc, wireValidStruct, sendProc, procID, MPI_COMM_WORLD, &request);
         // Synch Recieve
         int recvProc = (procID == nproc - 1) ? 0 : procID + 1;
-        MPI_Recv(recvBuf, nproc, wireValidStruct, recvProc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        // printf("hi this is thread %d on iteration %d\n", procID, i);
+        MPI_Recv(recvBuf, nproc, wireValidStruct, recvProc, recvProc, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
         // Update Wires that you recieved
         for (int k = 0; k < nproc; k++) {
-            int index = displacements[k] + f;
+            if (k == procID) {
+                continue;
+            }
             if (recvBuf[k].valid) {
                 wire_t temp = wireValidToWire(recvBuf[k]);
+                int index = recvBuf[k].wireIndex;
                 update_route(wires[index], costs, dim_x, dim_y,-1);
                 wires[index] = temp;
                 update_route(wires[index], costs, dim_x, dim_y,1);
             }
         }
-        f++;
-    }
-
-    for (int i = 0; i < nproc; i++) {
-        wireValid_t newValidWire;
-        newValidWire.valid = 0;
-        // Communication Here
-        memcpy(sendBuf, recvBuf, sizeof(recvBuf));
-        sendBuf[procID] = newValidWire;
-        // Asynch Send
-        MPI_Request request;
-        int sendProc = (procID == 0) ? nproc - 1 : procID - 1;
-        MPI_Isend(sendBuf, nproc, wireValidStruct, sendProc, 0, MPI_COMM_WORLD, &request);
-        // Synch Recieve
-        int recvProc = (procID == nproc - 1) ? 0 : procID + 1;
-        MPI_Recv(recvBuf, nproc, wireValidStruct, recvProc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        // printf("hi this is thread %d on iteration %d\n", procID, i);
-
-        // Update Wires that you recieved
-        for (int k = 0; k < nproc; k++) {
-            int index = displacements[k] + f;
-            if (recvBuf[k].valid) {
-                wire_t temp = wireValidToWire(recvBuf[k]);
-                update_route(wires[index], costs, dim_x, dim_y,-1);
-                wires[index] = temp;
-                update_route(wires[index], costs, dim_x, dim_y,1);
-            }
-        }
+        MPI_Barrier(MPI_COMM_WORLD);
     }
 }
 
