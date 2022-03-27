@@ -145,6 +145,16 @@ void defineWireStruct(MPI_Datatype *tstype) {
     MPI_Type_commit(tstype);
 }
 
+void defineWireValidStruct(MPI_Datatype *tstype) {
+    const int count = 10;
+    int          blocklens[count] = {1,1,1,1,1,1,1,1,1,1};
+    MPI_Datatype types[10] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
+    MPI_Aint     disps[count] = {offsetof(wireValid_t,start_x), offsetof(wireValid_t,start_y), offsetof(wireValid_t,end_x), offsetof(wireValid_t,end_y), offsetof(wireValid_t,numBends), offsetof(wireValid_t,bend0x), offsetof(wireValid_t,bend0y), offsetof(wireValid_t,bend1x), offsetof(wireValid_t,bend1y), offsetof(wireValid_t,valid)};
+
+    MPI_Type_create_struct(count, blocklens, disps, types, tstype);
+    MPI_Type_commit(tstype);
+}
+
 static wire_t updateHelper(wire_t InWire, int *costs, int dim_x, int dim_y, int random_prob) {
     int numBends = InWire.numBends;
     int start_x = InWire.start_x;
@@ -245,15 +255,46 @@ static wire_t updateHelper(wire_t InWire, int *costs, int dim_x, int dim_y, int 
     return bestWire;
 }
 
-static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc, int *displacements, int *counts) {
+static wire_t wireValidToWire(wireValid_t wireValid) {
+    wire_t temp;
+    temp.start_x = wireValid.start_x;
+    temp.start_y = wireValid.start_y;
+    temp.end_x = wireValid.end_x;
+    temp.end_y = wireValid.end_y;
+    temp.numBends = wireValid.numBends;
+    temp.bend0x = wireValid.bend0x;
+    temp.bend0y = wireValid.bend0y;
+    temp.bend1x = wireValid.bend1x;
+    temp.bend1y = wireValid.bend1y;
+    return temp;
+}
+
+static wireValid_t wireToWireValid(wire_t wire, int valid) {
+    wireValid_t temp;
+    temp.valid = valid;
+    temp.start_x = wire.start_x;
+    temp.start_y = wire.start_y;
+    temp.end_x = wire.end_x;
+    temp.end_y = wire.end_y;
+    temp.numBends = wire.numBends;
+    temp.bend0x = wire.bend0x;
+    temp.bend0y = wire.bend0y;
+    temp.bend1x = wire.bend1x;
+    temp.bend1y = wire.bend1y;
+    return temp;
+}
+
+static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc, int *displacements, int *counts, wireValid_t *sendBuf, wireValid_t *recvBuf) {
     // Find better cost for each wire
     (void)procID;
     int f = 0;
     int rem = num_wires%nproc;
     MPI_Datatype wireStruct;
-    wire_t wiresTemp[nproc];
     defineWireStruct(&wireStruct);
+    MPI_Datatype wireValidStruct;
+    defineWireValidStruct(&wireValidStruct);
     wire_t newWire;
+    wireValid_t newValidWire;
     for (int i = displacements[procID]; i < displacements[procID] + counts[procID]; i+=1) {
         // Wires we are modifying
         wire_t oldWire = wires[i];
@@ -264,29 +305,36 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
 
         update_route(newWire,costs,dim_x,dim_y,1);
         wires[i] = newWire;
+        newValidWire = wireToWireValid(newWire, 1);
+
+        // If we are doing remainder wires
         if (procID < rem && i == displacements[procID] + counts[procID] - 1) {
             break;
         }
-        MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
+
+        // Communication Here
+        memcpy(sendBuf, recvBuf, sizeof(recvBuf));
+        sendBuf[procID] = newValidWire;
+        // Asynch Send
+        MPI_Request request;
+        int sendProc = (procID == 0) ? nproc - 1 : procID - 1;
+        MPI_Isend(sendBuf, nproc, wireValidStruct, sendProc, 0, MPI_COMM_WORLD, &request);
+        // Synch Recieve
+        int recvProc = (procID == nproc - 1) ? 0 : procID + 1;
+        MPI_Recv(recvBuf, nproc, wireValidStruct, recvProc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        // printf("hi this is thread %d on iteration %d\n", procID, i);
+
+        // Update Wires that you recieved
         for (int k = 0; k < nproc; k++) {
             int index = displacements[k] + f;
-            update_route(wires[index], costs, dim_x, dim_y,-1);
-            wires[index] = wiresTemp[k];
-            update_route(wires[index], costs, dim_x, dim_y,1);
+            if (recvBuf[k].valid) {
+                wire_t temp = wireValidToWire(recvBuf[k]);
+                update_route(wires[index], costs, dim_x, dim_y,-1);
+                wires[index] = temp;
+                update_route(wires[index], costs, dim_x, dim_y,1);
+            }
         }
         f++;
-    }
-    // printf("thread %d got here! %d \n", procID, f);
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    if (rem > 0) {
-        MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
-        for (int k = 0; k < rem; k++) {
-            int index = displacements[k] + f;
-            update_route(wires[index], costs, dim_x, dim_y,-1);
-            wires[index] = wiresTemp[k];
-            update_route(wires[index], costs, dim_x, dim_y,1);
-        }
     }
 }
 
@@ -317,11 +365,14 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     fscanf(input, "%d\n", &num_of_wires);
 
     wire_t *wires = (wire_t *)calloc(num_of_wires, sizeof(wire_t));
-    wire_t *old_wires = (wire_t *)calloc(num_of_wires, sizeof(wire_t));
     /* Read the grid dimension and wire information from file */
 
     cost_t *costs = (cost_t *)calloc(dim_x * dim_y, sizeof(cost_t));
     /* Initialize cost matrix */
+
+    // For Asynch Send and Recieve
+    wireValid_t *sendBuf = (wireValid_t *)calloc(nproc, sizeof(wireValid_t));
+    wireValid_t *recvBuf = (wireValid_t *)calloc(nproc, sizeof(wireValid_t));
 
     // Read Input File and Initialize Arrays
     if (procID == root) {
@@ -333,7 +384,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         initialize(wires,costs,dim_x,dim_y,num_of_wires);
     }
 
-    // // Create MPI Structs to send using MPI
+    // Create MPI Structs to send using MPI
     defineWireStruct(&wireStruct);
     // Figuring out scatterv and gatherv distribution
     int *counts = (int*)calloc(nproc, sizeof(int)); // array describing how many elements to send to each process
@@ -365,7 +416,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
 
     for (int i = 0; i < numIterations; i++) {
         // update function HERE
-        update(wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob), procID, nproc, displacements, counts);
+        update(wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob), procID, nproc, displacements, counts, sendBuf, recvBuf);
     }
 
     // EndTime before I/O
