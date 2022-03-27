@@ -414,12 +414,14 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
 
         // Write to cost file
         int maxCost = 0;
+        int sumOfSquares = 0;
         fprintf(costFile, "%d %d\n", dim_x, dim_y);
         for(int i = 0; i < dim_y; i++){
             for(int j = 0; j < dim_x; j++){
                 int temp = costs[i*dim_y+j];
                 fprintf(costFile, "%d ", temp);
                 if(maxCost < temp) maxCost = temp;
+                sumOfSquares += temp*temp;
             }
             fprintf(costFile, "\n");
         }
@@ -461,6 +463,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         }
 
         printf("MaxCost: %d\n", maxCost);
+        printf("Sum Of Squares: %d\n", sumOfSquares);
 
         // Close all files
         free(wires);
