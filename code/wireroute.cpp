@@ -245,7 +245,7 @@ static wire_t updateHelper(wire_t InWire, int *costs, int dim_x, int dim_y, int 
     return bestWire;
 }
 
-static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob,int procID) {
+static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc) {
     // Find better cost for each wire
     (void)procID;
     for (int i = 0; i < num_wires; i+=1) {
@@ -258,6 +258,17 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
 
         update_route(newWire,costs,dim_x,dim_y,1);
         wires[i] = newWire;
+
+        MPI_Datatype wireStruct;
+        wire_t wiresTemp[nproc];
+        defineWireStruct(&wireStruct);
+        //printf("thread %d got here! %d %d \n", procID, i, 0);
+        MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
+        for (int k = 0; k < nproc; k++) {
+            update_route(wires[i], costs, dim_x, dim_y,-1);
+            wires[i] = wiresTemp[k];
+            update_route(wires[i], costs, dim_x, dim_y,1);
+        }
     }
 }
 
@@ -330,28 +341,13 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     // StartTime after intialization
     startTime = MPI_Wtime();
 
-    // // Scatterv wires to nodes
-    MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
+    // Bcast wires and costs
+    MPI_Bcast(wires, num_of_wires, wireStruct, root, MPI_COMM_WORLD);
+    MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
 
     for (int i = 0; i < numIterations; i++) {
-
-        // Broadcast Data to all Nodes
-        MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
-
         // update function HERE
-        update(node_wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob),procID);
-        if (procID == root) {
-            old_wires = wires;
-        }
-        // Gather and Collect the data for wires array
-        MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
-
-        // Recollect Wire Data and create new Cost map based on data from each Node
-        // Don't need costs anymore we will rebuild it
-
-        if (procID == root) {
-            createCostMap(old_wires,wires, costs, dim_x, dim_y, num_of_wires);
-        } 
+        update(wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob), procID, nproc);
     }
 
     // EndTime before I/O
