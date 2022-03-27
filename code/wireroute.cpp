@@ -245,29 +245,47 @@ static wire_t updateHelper(wire_t InWire, int *costs, int dim_x, int dim_y, int 
     return bestWire;
 }
 
-static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc) {
+static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc, int *displacements, int *counts) {
     // Find better cost for each wire
     (void)procID;
-    for (int i = 0; i < num_wires; i+=1) {
+    int f = 0;
+    int rem = num_wires%nproc;
+    MPI_Datatype wireStruct;
+    wire_t wiresTemp[nproc];
+    defineWireStruct(&wireStruct);
+    wire_t newWire;
+    for (int i = displacements[procID]; i < displacements[procID] + counts[procID]; i+=1) {
         // Wires we are modifying
         wire_t oldWire = wires[i];
 
         update_route(oldWire,costs,dim_x,dim_y,-1);
 
-        wire_t newWire = updateHelper(oldWire, costs, dim_x, dim_y, random_prob);
+        newWire = updateHelper(oldWire, costs, dim_x, dim_y, random_prob);
 
         update_route(newWire,costs,dim_x,dim_y,1);
         wires[i] = newWire;
-
-        MPI_Datatype wireStruct;
-        wire_t wiresTemp[nproc];
-        defineWireStruct(&wireStruct);
-        //printf("thread %d got here! %d %d \n", procID, i, 0);
+        if (procID < rem && i == displacements[procID] + counts[procID] - 1) {
+            break;
+        }
         MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
         for (int k = 0; k < nproc; k++) {
-            update_route(wires[i], costs, dim_x, dim_y,-1);
-            wires[i] = wiresTemp[k];
-            update_route(wires[i], costs, dim_x, dim_y,1);
+            int index = displacements[k] + f;
+            update_route(wires[index], costs, dim_x, dim_y,-1);
+            wires[index] = wiresTemp[k];
+            update_route(wires[index], costs, dim_x, dim_y,1);
+        }
+        f++;
+    }
+    // printf("thread %d got here! %d \n", procID, f);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    if (rem > 0) {
+        MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
+        for (int k = 0; k < rem; k++) {
+            int index = displacements[k] + f;
+            update_route(wires[index], costs, dim_x, dim_y,-1);
+            wires[index] = wiresTemp[k];
+            update_route(wires[index], costs, dim_x, dim_y,1);
         }
     }
 }
@@ -347,7 +365,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
 
     for (int i = 0; i < numIterations; i++) {
         // update function HERE
-        update(wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob), procID, nproc);
+        update(wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob), procID, nproc, displacements, counts);
     }
 
     // EndTime before I/O
