@@ -285,7 +285,7 @@ static wireValid_t wireToWireValid(wire_t wire, int valid, int index) {
     return temp;
 }
 
-static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc, int *displacements, int *counts, wireValid_t *sendBuf, wireValid_t *recvBuf) {
+static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc, int *displacements, int *counts, wireValid_t *sendBuf, wireValid_t *recvBuf, int batch_size) {
     // Find better cost for each wire
     (void)procID;
     int rem = num_wires%nproc;
@@ -294,7 +294,7 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
     MPI_Datatype wireValidStruct;
     defineWireValidStruct(&wireValidStruct);
     wire_t newWire;
-    wireValid_t newValidWire[4];
+    wireValid_t *newValidWire = (wireValid_t *)calloc(batch_size, sizeof(wireValid_t));
     int f = 0;
     for (int i = displacements[procID]; i < displacements[procID] + counts[procID]; i+=1) {
         // Wires we are modifying
@@ -306,31 +306,29 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
 
         update_route(newWire,costs,dim_x,dim_y,1);
         wires[i] = newWire;
-        newValidWire[f%4] = wireToWireValid(newWire, 1, i);
+        newValidWire[f%batch_size] = wireToWireValid(newWire, 1, i);
 
         // If we are doing remainder wires
         if (procID < rem && i == displacements[procID] + counts[procID] - 1) {
             break;
         }
 
-        if (f%4 == 0) {
+        if (f%batch_size == 0) {
             // Communication Here
-            memcpy(sendBuf, recvBuf, nproc * 4 * sizeof(wireValid_t));
-            sendBuf[procID*4] = newValidWire[0];
-            sendBuf[procID*4 + 1] = newValidWire[1];
-            sendBuf[procID*4 + 2] = newValidWire[2];
-            sendBuf[procID*4 + 3] = newValidWire[3];
+            memcpy(sendBuf, recvBuf, nproc * batch_size * sizeof(wireValid_t));
+            memcpy((wireValid_t *)(&sendBuf[procID*batch_size]), newValidWire, batch_size * sizeof(wireValid_t));
+            
             // Asynch Send
             MPI_Request request;
             int sendProc = (procID == 0) ? nproc - 1 : procID - 1;
-            MPI_Isend(sendBuf, 4*nproc, wireValidStruct, sendProc, procID, MPI_COMM_WORLD, &request);
+            MPI_Isend(sendBuf, batch_size*nproc, wireValidStruct, sendProc, procID, MPI_COMM_WORLD, &request);
             // Synch Recieve
             int recvProc = (procID == nproc - 1) ? 0 : procID + 1;
-            MPI_Recv(recvBuf, 4*nproc, wireValidStruct, recvProc, recvProc, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(recvBuf, batch_size*nproc, wireValidStruct, recvProc, recvProc, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Update Wires that you recieved
-            for (int k = 0; k < nproc*4; k++) {
-                if (k/4 == procID) {
+            for (int k = 0; k < nproc*batch_size; k++) {
+                if (k/batch_size == procID) {
                     continue;
                 }
                 if (recvBuf[k].valid) {
@@ -358,6 +356,8 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     MPI_Status status;
     MPI_Datatype wireStruct;
 
+    int batch_size = 16;
+
     FILE *input;
 
     input = fopen(inputFilename, "r");
@@ -380,8 +380,8 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     /* Initialize cost matrix */
 
     // For Asynch Send and Recieve
-    wireValid_t *sendBuf = (wireValid_t *)calloc(nproc*4, sizeof(wireValid_t));
-    wireValid_t *recvBuf = (wireValid_t *)calloc(nproc*4, sizeof(wireValid_t));
+    wireValid_t *sendBuf = (wireValid_t *)calloc(nproc*batch_size, sizeof(wireValid_t));
+    wireValid_t *recvBuf = (wireValid_t *)calloc(nproc*batch_size, sizeof(wireValid_t));
 
     // Read Input File and Initialize Arrays
     if (procID == root) {
@@ -425,7 +425,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
 
     for (int i = 0; i < numIterations; i++) {
         // update function HERE
-        update(wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob), procID, nproc, displacements, counts, sendBuf, recvBuf);
+        update(wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob), procID, nproc, displacements, counts, sendBuf, recvBuf, batch_size);
     }
 
     // EndTime before I/O
