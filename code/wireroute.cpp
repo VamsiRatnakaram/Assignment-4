@@ -336,6 +336,33 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
         }
         f++;
     }
+
+    for (int i = 0; i < nproc; i++) {
+        wireValid_t newValidWire;
+        newValidWire.valid = 0;
+        // Communication Here
+        memcpy(sendBuf, recvBuf, sizeof(recvBuf));
+        sendBuf[procID] = newValidWire;
+        // Asynch Send
+        MPI_Request request;
+        int sendProc = (procID == 0) ? nproc - 1 : procID - 1;
+        MPI_Isend(sendBuf, nproc, wireValidStruct, sendProc, 0, MPI_COMM_WORLD, &request);
+        // Synch Recieve
+        int recvProc = (procID == nproc - 1) ? 0 : procID + 1;
+        MPI_Recv(recvBuf, nproc, wireValidStruct, recvProc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        // printf("hi this is thread %d on iteration %d\n", procID, i);
+
+        // Update Wires that you recieved
+        for (int k = 0; k < nproc; k++) {
+            int index = displacements[k] + f;
+            if (recvBuf[k].valid) {
+                wire_t temp = wireValidToWire(recvBuf[k]);
+                update_route(wires[index], costs, dim_x, dim_y,-1);
+                wires[index] = temp;
+                update_route(wires[index], costs, dim_x, dim_y,1);
+            }
+        }
+    }
 }
 
 // Perform computation, including reading/writing output files
