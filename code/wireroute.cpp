@@ -313,7 +313,7 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
             break;
         }
 
-        if (f/4 == 0 && f != 0) {
+        if (f%4 == 0) {
             // Communication Here
             memcpy(sendBuf, recvBuf, nproc * 4 * sizeof(wireValid_t));
             sendBuf[procID*4] = newValidWire[0];
