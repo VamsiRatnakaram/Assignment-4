@@ -251,7 +251,7 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
     int f = 0;
     int rem = num_wires%nproc;
     MPI_Datatype wireStruct;
-    int batch_size = 256;
+    int batch_size = 512/nproc;
     wire_t *wiresTemp = (wire_t*)calloc(nproc*batch_size, sizeof(wire_t));
     defineWireStruct(&wireStruct);
     wire_t newWire;
