@@ -145,10 +145,10 @@ void defineWireStruct(MPI_Datatype *tstype) {
     MPI_Type_commit(tstype);
 }
 
-static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob,int procID) {
+static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob,int procID, int nproc, int *displacements, int *counts) {
     // Find better cost for each wire
     (void)procID;
-    for (int i = 0; i < num_wires; i+=1) {
+    for (int i = displacements[procID]; i < displacements[procID] + counts[procID]; i+=1) {
         int numBends = wires[i].numBends;
         if (numBends == 0) {
             continue;
@@ -254,7 +254,18 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
         }
 
         update_route(bestWire,costs,dim_x,dim_y,1);
-        wires[i] = bestWire;
+
+        MPI_Datatype wireStruct;
+        wire_t wiresTemp[nproc];
+        defineWireStruct(&wireStruct);
+        //printf("thread %d got here! %d %d \n", procID, i, 0);
+        MPI_Allgather(&bestWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
+        for (int k = 0; k < nproc; k++) {
+            update_route(wires[i], costs, dim_x, dim_y,-1);
+            wires[i] = wiresTemp[k];
+            update_route(wires[i], costs, dim_x, dim_y,1);
+        }
+        //wires[i] = bestWire;
     }
 }
 
@@ -301,7 +312,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         initialize(wires,costs,dim_x,dim_y,num_of_wires);
     }
 
-    // // Create MPI Structs to send using MPI
+    // Create MPI Structs to send using MPI
     defineWireStruct(&wireStruct);
     // Figuring out scatterv and gatherv distribution
     int *counts = (int*)calloc(nproc, sizeof(int)); // array describing how many elements to send to each process
@@ -322,33 +333,37 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     }
 
     // Wire allocation per Node
-    wire_t *node_wires = (wire_t *)calloc(counts[procID], sizeof(wire_t));
+    // wire_t *node_wires = (wire_t *)calloc(counts[procID], sizeof(wire_t));
+
+    MPI_Bcast(wires, num_of_wires, wireStruct, root, MPI_COMM_WORLD);
+    MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
 
     // StartTime after intialization
     startTime = MPI_Wtime();
 
-    // // Scatterv wires to nodes
-    MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
+    // Scatterv wires to nodes
+    //MPI_Scatterv(wires, counts, displacements, wireStruct, node_wires, counts[procID], wireStruct, root, MPI_COMM_WORLD);
 
     for (int i = 0; i < numIterations; i++) {
 
         // Broadcast Data to all Nodes
-        MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
+        // MPI_Bcast(costs, dim_x * dim_y, MPI_INT, root, MPI_COMM_WORLD);
 
         // update function HERE
-        update(node_wires, costs, dim_x, dim_y, counts[procID], (int)(100*prob),procID);
-        if (procID == root) {
-            old_wires = wires;
-        }
+        update(wires, costs, dim_x, dim_y, num_of_wires, (int)(100*prob), procID, nproc, displacements, counts);
+        // if (procID == root) {
+        //     old_wires = wires;
+        // }
+
         // Gather and Collect the data for wires array
-        MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
+        // MPI_Gatherv(node_wires, counts[procID], wireStruct, wires, counts, displacements, wireStruct, root, MPI_COMM_WORLD);
 
         // Recollect Wire Data and create new Cost map based on data from each Node
         // Don't need costs anymore we will rebuild it
 
-        if (procID == root) {
-            createCostMap(old_wires,wires, costs, dim_x, dim_y, num_of_wires);
-        } 
+        // if (procID == root) {
+        //     createCostMap(old_wires,wires, costs, dim_x, dim_y, num_of_wires);
+        // } 
     }
 
     // EndTime before I/O
@@ -387,10 +402,13 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         }
 
         // Write to cost file
+        int maxCost = 0;
         fprintf(costFile, "%d %d\n", dim_x, dim_y);
         for(int i = 0; i < dim_y; i++){
             for(int j = 0; j < dim_x; j++){
-                fprintf(costFile, "%d ", costs[i*dim_y+j]);
+                int temp = costs[i*dim_y+j];
+                fprintf(costFile, "%d ", temp);
+                if (maxCost < temp) maxCost = temp;
             }
             fprintf(costFile, "\n");
         }
@@ -431,6 +449,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
             fprintf(outFile, "\n");
         }
 
+        printf("Max Cost: %d\n", maxCost);
         // Close all files
         free(wires);
         free(costs);
