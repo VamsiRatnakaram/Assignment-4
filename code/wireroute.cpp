@@ -14,6 +14,7 @@
 
 using namespace std;
 
+//helper function to update the values in the cost map based on either adding or removing a wire
 static void update_route(wire_t wire,int *costs,int dim_x,int dim_y,int updateVal){
         int start_x = wire.start_x;
         int start_y = wire.start_y;
@@ -48,8 +49,8 @@ static void update_route(wire_t wire,int *costs,int dim_x,int dim_y,int updateVa
         }
 }
 
+//helper function to initialize wires and cost map
 static void initialize(wire_t *wires, int *costs, int dim_x,int dim_y,int num_wires) {
-    //looks messy maybe optimize
     for (int i = 0; i < num_wires; i++){
         wire_t *init_wire = &wires[i];
         if(init_wire->start_x==init_wire->end_x || init_wire->start_y==init_wire->end_y){
@@ -63,13 +64,7 @@ static void initialize(wire_t *wires, int *costs, int dim_x,int dim_y,int num_wi
     }
 }
 
-static void createCostMap(wire_t *old_wires,wire_t *wires, int *costs, int dim_x,int dim_y,int num_wires) {
-    for (int i = 0; i < num_wires; i++){
-        update_route(old_wires[i],costs,dim_x,dim_y,-1);
-        update_route(wires[i],costs,dim_x,dim_y,1);
-    }
-}
-
+//helper to calculate the cost of a wire route both max cost and total route cost
 static total_cost_t calculateCost(wire_t curr, int *costs, int dim_x, int dim_y) {
     int maxVal=0;
     int start_x=curr.start_x;
@@ -94,7 +89,7 @@ static total_cost_t calculateCost(wire_t curr, int *costs, int dim_x, int dim_y)
             int end_index=end*y+start_x;
             int j=index;
             for(; j < end_index+1; j+=2*y){
-                int temp_bendy = (i == 1) ? curr.bend0y : curr.bend1y; // TO-DO check correctness of this line
+                int temp_bendy = (i == 1) ? curr.bend0y : curr.bend1y; 
                 if (!(i && temp_bendy==j)) {
                     int c1=costs[j];
                     int c2=costs[j+y];
@@ -114,7 +109,7 @@ static total_cost_t calculateCost(wire_t curr, int *costs, int dim_x, int dim_y)
             int end_index=start_y*y+end;
             int k=index;
             for(; k < end_index+1; k+=2){
-                int temp_bendx = (i == 1) ? curr.bend0x : curr.bend1x; // TO-DO check correctness of this line
+                int temp_bendx = (i == 1) ? curr.bend0x : curr.bend1x; 
                 if (!(i && temp_bendx==k)) {
                     int c1=costs[k];
                     int c2=costs[k+1];
@@ -135,6 +130,7 @@ static total_cost_t calculateCost(wire_t curr, int *costs, int dim_x, int dim_y)
     return total_cost;
 }
 
+//wire struct for MPI
 void defineWireStruct(MPI_Datatype *tstype) {
     const int count = 10;
     int          blocklens[count] = {1,1,1,1,1,1,1,1,1,1};
@@ -145,6 +141,7 @@ void defineWireStruct(MPI_Datatype *tstype) {
     MPI_Type_commit(tstype);
 }
 
+//helper for each core to find best route for a wire
 static wire_t updateHelper(wire_t InWire, int *costs, int dim_x, int dim_y, int random_prob) {
     int numBends = InWire.numBends;
     int start_x = InWire.start_x;
@@ -162,7 +159,6 @@ static wire_t updateHelper(wire_t InWire, int *costs, int dim_x, int dim_y, int 
     if(start_y > end_y){
         sign_y=-1;
     }
-
     // Create Random Path
     // Horizontal first
     wire_t hWire = InWire;
@@ -245,7 +241,9 @@ static wire_t updateHelper(wire_t InWire, int *costs, int dim_x, int dim_y, int 
     return bestWire;
 }
 
-static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, int procID, int nproc, int *displacements, int *counts) {
+//helper for each core to communicate with others and optimize its wires routes
+static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob, 
+int procID, int nproc, int *displacements, int *counts) {
     // Find better cost for each wire
     (void)procID;
     int f = 0;
@@ -267,9 +265,13 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
         wires[i] = newWire;
         newWire.index = i;
         wiresTemp[(procID)*batch_size+f%batch_size] = newWire;
+
+        //ignore remaining wires at end
         if (procID < rem && i == displacements[procID] + counts[procID] - 1) {
             break;
         }
+
+        //if buffer is full share with other cores and update your map based on other routes
         if(f%batch_size == 0 && f != 0) {
             MPI_Allgather(&(wiresTemp[procID*batch_size]), batch_size, wireStruct, wiresTemp, batch_size, wireStruct, MPI_COMM_WORLD);
             for (int k = 0; k < nproc*batch_size; k++) {
@@ -285,24 +287,11 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
         }
         f++;
     }
-    // printf("thread %d got here! %d \n", procID, f);
-
     MPI_Barrier(MPI_COMM_WORLD);
-    // if (rem > 0) {
-    //     MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
-    //     for (int k = 0; k < rem; k++) {
-    //         int index = displacements[k] + f;
-    //         update_route(wires[index], costs, dim_x, dim_y,-1);
-    //         wires[index] = wiresTemp[k];
-    //         update_route(wires[index], costs, dim_x, dim_y,1);
-    //     }
-    // }
 }
 
 // Perform computation, including reading/writing output files
 double compute(int procID, int nproc, char *inputFilename, double prob, int numIterations) {
-    // TODO Implement code here
-    // TODO Decide which processors should be reading/writing files
     const int root = 0; // Set the rank 0 process as the root process
     int tag = 0;        // Use the same tag
     double startTime;
@@ -326,7 +315,6 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     fscanf(input, "%d\n", &num_of_wires);
 
     wire_t *wires = (wire_t *)calloc(num_of_wires, sizeof(wire_t));
-    wire_t *old_wires = (wire_t *)calloc(num_of_wires, sizeof(wire_t));
     /* Read the grid dimension and wire information from file */
 
     cost_t *costs = (cost_t *)calloc(dim_x * dim_y, sizeof(cost_t));
@@ -344,7 +332,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
 
     // // Create MPI Structs to send using MPI
     defineWireStruct(&wireStruct);
-    // Figuring out scatterv and gatherv distribution
+
     int *counts = (int*)calloc(nproc, sizeof(int)); // array describing how many elements to send to each process
     int rem = (num_of_wires)%nproc; // elements remaining after division among processes
     int *displacements = (int*)calloc(nproc, sizeof(int)); // array describing the displacements where each segment begins
@@ -431,39 +419,45 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         fprintf(outFile, "%d\n", num_of_wires);
         for (int i = 0; i < num_of_wires; i++) {
             wire_t curr = wires[i];
-            int start_x = curr.start_x;
-            int start_y = curr.start_y;
-            int end_x,end_y;
-            for(int i = 0; i < curr.numBends+1; i++){
-                if(i==curr.numBends){
-                    end_x=curr.end_x;
-                    end_y=curr.end_y;
-                }else{
-                    end_x = (i != 1) ? curr.bend0x : curr.bend1x;
-                    end_y = (i != 1) ? curr.bend0y : curr.bend1y;
-                }
-                if(start_x==end_x){
-                    int sign = start_y < end_y ? 1 : -1;
-                    for(int j = 0; j < abs(end_y-start_y)+1; j++){
-                        if(i>0 && j==0) continue;
-                        fprintf(outFile, "%d %d ", start_x, start_y+j*(sign));
-                    }
-                    start_y=end_y;
-                }else{
-                    int sign = start_x < end_x ? 1 : -1;
-                    for(int j = 0; j < abs(end_x-start_x)+1; j++){
-                        if(i>0 && j==0) continue;
-                        fprintf(outFile, "%d %d ", start_x+j*(sign),start_y);
-                    }
-                    start_x=end_x;
-
-                }
+            fprintf(outFile, "%d %d ", curr.start_x, curr.start_y);
+            if (curr.numBends>0){
+                fprintf(outFile, "%d %d ", curr.bend0x, curr.bend0y);
             }
+            if (curr.numBends>1){
+                fprintf(outFile, "%d %d ", curr.bend1x, curr.bend1y);
+            }
+            fprintf(outFile, "%d %d ", curr.end_x, curr.end_y);
+
+            // int start_x = curr.start_x;
+            // int start_y = curr.start_y;
+            // int end_x,end_y;
+            // for(int i = 0; i < curr.numBends+1; i++){
+            //     if(i==curr.numBends){
+            //         end_x=curr.end_x;
+            //         end_y=curr.end_y;
+            //     }else{
+            //         end_x = (i != 1) ? curr.bend0x : curr.bend1x;
+            //         end_y = (i != 1) ? curr.bend0y : curr.bend1y;
+            //     }
+            //     if(start_x==end_x){
+            //         int sign = start_y < end_y ? 1 : -1;
+            //         for(int j = 0; j < abs(end_y-start_y)+1; j++){
+            //             if(i>0 && j==0) continue;
+            //             fprintf(outFile, "%d %d ", start_x, start_y+j*(sign));
+            //         }
+            //         start_y=end_y;
+            //     }else{
+            //         int sign = start_x < end_x ? 1 : -1;
+            //         for(int j = 0; j < abs(end_x-start_x)+1; j++){
+            //             if(i>0 && j==0) continue;
+            //             fprintf(outFile, "%d %d ", start_x+j*(sign),start_y);
+            //         }
+            //         start_x=end_x;
+
+            //     }
+            // }
             fprintf(outFile, "\n");
         }
-
-        printf("MaxCost: %d\n", maxCost);
-        printf("Sum Of Squares: %d\n", sumOfSquares);
 
         // Close all files
         free(wires);
