@@ -357,7 +357,7 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     MPI_Status status;
     MPI_Datatype wireStruct;
 
-    int batch_size = 256;
+    int batch_size = num_of_wires/nproc;
 
     FILE *input;
 
