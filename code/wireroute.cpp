@@ -343,6 +343,7 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
         }
         f++;
     }
+    free(newValidWire);
 }
 
 // Perform computation, including reading/writing output files
@@ -413,9 +414,6 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         sum += counts[k];
     }
 
-    // Wire allocation per Node
-    wire_t *node_wires = (wire_t *)calloc(counts[procID], sizeof(wire_t));
-
     // StartTime after intialization
     startTime = MPI_Wtime();
 
@@ -465,12 +463,14 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
 
         // Write to cost file
         int maxCost = 0;
+        int sumOfSquares = 0;
         fprintf(costFile, "%d %d\n", dim_x, dim_y);
         for(int i = 0; i < dim_y; i++){
             for(int j = 0; j < dim_x; j++){
                 int temp = costs[i*dim_y+j];
                 fprintf(costFile, "%d ", temp);
                 if(maxCost < temp) maxCost = temp;
+                sumOfSquares += temp*temp;
             }
             fprintf(costFile, "\n");
         }
@@ -512,8 +512,11 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         }
 
         printf("MaxCost: %d\n", maxCost);
+        printf("Sum Of Squares: %d\n", sumOfSquares);
 
         // Close all files
+        free(sendBuf);
+        free(recvBuf);
         free(wires);
         free(costs);
         fclose(input);
