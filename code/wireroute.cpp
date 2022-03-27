@@ -145,116 +145,119 @@ void defineWireStruct(MPI_Datatype *tstype) {
     MPI_Type_commit(tstype);
 }
 
+static wire_t updateHelper(wire_t InWire, int *costs, int dim_x, int dim_y, int random_prob) {
+    int numBends = InWire.numBends;
+    int start_x = InWire.start_x;
+    int start_y = InWire.start_y;
+    int end_x = InWire.end_x;
+    int end_y = InWire.end_y;
+    if (numBends == 0) {
+        return InWire;
+    }
+
+    int sign_x=1,sign_y=1;
+    if(start_x > end_x){
+        sign_x=-1;
+    }
+    if(start_y > end_y){
+        sign_y=-1;
+    }
+
+    // Create Random Path
+    // Horizontal first
+    wire_t hWire = InWire;
+    hWire.bend0x = (rand() % (abs(end_x-start_x)))*sign_x + start_x;
+    hWire.bend0y = start_y;
+    if (hWire.bend0x == end_x) {
+        hWire.numBends = 1;
+    }
+    else {
+        hWire.numBends = 2;
+        hWire.bend1x = hWire.bend0x;
+        hWire.bend1y = end_y;
+    }
+    // Vertical First
+    wire_t vWire = InWire;
+    vWire.bend0y = (rand() % (abs(end_y-start_y)))*sign_y + start_y;
+    vWire.bend0x = start_x;
+    if (vWire.bend0y == end_y) {
+        vWire.numBends = 1;
+    }
+    else {
+        vWire.numBends = 2;
+        vWire.bend1y = vWire.bend0y;
+        vWire.bend1x = end_x;
+    }
+    int h_or_v = rand() % 2;
+    int randomProb = rand() % 100;
+    // Replace best wire with random wire
+    if (randomProb < random_prob) {
+        wire_t randomWire = (h_or_v) ? hWire : vWire;
+        return randomWire;
+    }
+
+    total_cost_t currCost = calculateCost(InWire, costs, dim_x, dim_y);
+    wire_t newWire = InWire;
+    wire_t bestWire = InWire;
+    newWire.numBends = 0;
+
+    // Check All Possible Paths
+    for (int j = 0; j < abs(end_x - start_x) + abs(end_y - start_y); j+=1) {
+        if (j < abs(end_x - start_x)) { // Horizontal Path
+            newWire.bend0x = start_x + sign_x*(j + 1);
+            newWire.bend0y = start_y;
+            if (newWire.bend0x == end_x) {
+                // One Bend Case
+                newWire.numBends = 1;
+            }
+            else {
+                // Two Bend Case
+                newWire.bend1x = newWire.bend0x;
+                newWire.bend1y = end_y;
+                newWire.numBends = 2;
+            }
+        }
+        else { // Once done with all horizontal paths, we can compute vertical paths
+            int modified_j = j - abs(end_x - start_x);
+            newWire.bend0y = start_y + sign_y*(modified_j + 1);
+            newWire.bend0x = start_x;
+            if ( newWire.bend0y == end_y) {
+                // One Bend Case
+                newWire.numBends = 1;
+            }
+            else {
+                // Two Bend Case
+                newWire.bend1y = newWire.bend0y;
+                newWire.bend1x = end_x;
+                newWire.numBends = 2;
+            }
+            // Check if newWire is better than oldWire and replace if so
+        }
+        total_cost_t newCost = calculateCost(newWire, costs, dim_x, dim_y);
+        if(newCost.maxValue < currCost.maxValue){
+            currCost = newCost;
+            bestWire = newWire; 
+        }else if (newCost.maxValue == currCost.maxValue && newCost.cost < currCost.cost) {
+            currCost = newCost;
+            bestWire = newWire;
+        }
+    }
+    return bestWire;
+}
+
 static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wires, int random_prob,int procID) {
     // Find better cost for each wire
     (void)procID;
     for (int i = 0; i < num_wires; i+=1) {
-        int numBends = wires[i].numBends;
-        if (numBends == 0) {
-            continue;
-        }
-
         // Wires we are modifying
         wire_t oldWire = wires[i];
-        int start_x = oldWire.start_x;
-        int start_y = oldWire.start_y;
-        int end_x = oldWire.end_x;
-        int end_y = oldWire.end_y;
 
         update_route(oldWire,costs,dim_x,dim_y,-1);
 
-        int sign_x=1,sign_y=1;
-        if(start_x > end_x){
-            sign_x=-1;
-        }
-        if(start_y > end_y){
-            sign_y=-1;
-        }
+        wire_t newWire = updateHelper(oldWire, costs, dim_x, dim_y, random_prob);
 
-        // Create Random Path
-        // Horizontal first
-        wire_t hWire = oldWire;
-        hWire.bend0x = (rand() % (abs(end_x-start_x)))*sign_x + start_x;
-        hWire.bend0y = start_y;
-        if (hWire.bend0x == end_x) {
-            hWire.numBends = 1;
-        }
-        else {
-            hWire.numBends = 2;
-            hWire.bend1x = hWire.bend0x;
-            hWire.bend1y = end_y;
-        }
-        // Vertical First
-        wire_t vWire = oldWire;
-        vWire.bend0y = (rand() % (abs(end_y-start_y)))*sign_y + start_y;
-        vWire.bend0x = start_x;
-        if (vWire.bend0y == end_y) {
-            vWire.numBends = 1;
-        }
-        else {
-            vWire.numBends = 2;
-            vWire.bend1y = vWire.bend0y;
-            vWire.bend1x = end_x;
-        }
-        int h_or_v = rand() % 2;
-        int randomProb = rand() % 100;
-        // Replace best wire with random wire
-        if (randomProb < random_prob) {
-            wire_t randomWire = (h_or_v) ? hWire : vWire;
-            update_route(randomWire,costs,dim_x,dim_y,1);
-            wires[i] = randomWire;
-            continue;
-        }
-
-        total_cost_t currCost = calculateCost(oldWire, costs, dim_x, dim_y);
-        wire_t newWire = oldWire;
-        wire_t bestWire = oldWire;
-        newWire.numBends = 0;
-
-        // Check All Possible Paths
-        for (int j = 0; j < abs(end_x - start_x) + abs(end_y - start_y); j+=1) {
-            if (j < abs(end_x - start_x)) { // Horizontal Path
-                newWire.bend0x = start_x + sign_x*(j + 1);
-                newWire.bend0y = start_y;
-                if (newWire.bend0x == end_x) {
-                    // One Bend Case
-                    newWire.numBends = 1;
-                }
-                else {
-                    // Two Bend Case
-                    newWire.bend1x = newWire.bend0x;
-                    newWire.bend1y = end_y;
-                    newWire.numBends = 2;
-                }
-            }
-            else { // Once done with all horizontal paths, we can compute vertical paths
-                int modified_j = j - abs(end_x - start_x);
-                newWire.bend0y = start_y + sign_y*(modified_j + 1);
-                newWire.bend0x = start_x;
-                if ( newWire.bend0y == end_y) {
-                    // One Bend Case
-                    newWire.numBends = 1;
-                }
-                else {
-                    // Two Bend Case
-                    newWire.bend1y = newWire.bend0y;
-                    newWire.bend1x = end_x;
-                    newWire.numBends = 2;
-                }
-                // Check if newWire is better than oldWire and replace if so
-            }
-            total_cost_t newCost = calculateCost(newWire, costs, dim_x, dim_y);
-            if(newCost.maxValue < currCost.maxValue){
-                currCost = newCost;
-                bestWire = newWire; 
-            }else if (newCost.maxValue == currCost.maxValue && newCost.cost < currCost.cost) {
-                currCost = newCost;
-                bestWire = newWire;
-            }
-        }
-
-        update_route(bestWire,costs,dim_x,dim_y,1);
-        wires[i] = bestWire;
+        update_route(newWire,costs,dim_x,dim_y,1);
+        wires[i] = newWire;
     }
 }
 
@@ -387,10 +390,13 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         }
 
         // Write to cost file
+        int maxCost = 0;
         fprintf(costFile, "%d %d\n", dim_x, dim_y);
         for(int i = 0; i < dim_y; i++){
             for(int j = 0; j < dim_x; j++){
-                fprintf(costFile, "%d ", costs[i*dim_y+j]);
+                int temp = costs[i*dim_y+j];
+                fprintf(costFile, "%d ", temp);
+                if(maxCost < temp) maxCost = temp;
             }
             fprintf(costFile, "\n");
         }
@@ -430,6 +436,8 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
             }
             fprintf(outFile, "\n");
         }
+
+        printf("MaxCost: %d\n", maxCost);
 
         // Close all files
         free(wires);
