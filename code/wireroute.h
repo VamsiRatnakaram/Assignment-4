@@ -21,7 +21,22 @@ typedef struct { /* Define the data structure for wire here */
     int bend0y;
     int bend1x;
     int bend1y;
+    int index;
 } wire_t;
+
+typedef struct { /* Define the data structure for wire here */
+    int start_x;
+    int start_y;
+    int end_x;
+    int end_y;
+    int numBends;
+    int bend0x;
+    int bend0y;
+    int bend1x;
+    int bend1y;
+    int valid;
+    int wireIndex;
+} wireValid_t;
 
 typedef int cost_t;
 

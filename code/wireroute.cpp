@@ -136,10 +136,10 @@ static total_cost_t calculateCost(wire_t curr, int *costs, int dim_x, int dim_y)
 }
 
 void defineWireStruct(MPI_Datatype *tstype) {
-    const int count = 9;
-    int          blocklens[count] = {1,1,1,1,1,1,1,1,1};
-    MPI_Datatype types[9] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
-    MPI_Aint     disps[count] = {offsetof(wire_t,start_x), offsetof(wire_t,start_y), offsetof(wire_t,end_x), offsetof(wire_t,end_y), offsetof(wire_t,numBends), offsetof(wire_t,bend0x), offsetof(wire_t,bend0y), offsetof(wire_t,bend1x), offsetof(wire_t,bend1y)};
+    const int count = 10;
+    int          blocklens[count] = {1,1,1,1,1,1,1,1,1,1};
+    MPI_Datatype types[10] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
+    MPI_Aint     disps[count] = {offsetof(wire_t,start_x), offsetof(wire_t,start_y), offsetof(wire_t,end_x), offsetof(wire_t,end_y), offsetof(wire_t,numBends), offsetof(wire_t,bend0x), offsetof(wire_t,bend0y), offsetof(wire_t,bend1x), offsetof(wire_t,bend1y), offsetof(wire_t,index)};
 
     MPI_Type_create_struct(count, blocklens, disps, types, tstype);
     MPI_Type_commit(tstype);
@@ -251,7 +251,8 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
     int f = 0;
     int rem = num_wires%nproc;
     MPI_Datatype wireStruct;
-    wire_t wiresTemp[nproc];
+    int batch_size = 256;
+    wire_t *wiresTemp = (wire_t*)calloc(nproc*batch_size, sizeof(wire_t));
     defineWireStruct(&wireStruct);
     wire_t newWire;
     for (int i = displacements[procID]; i < displacements[procID] + counts[procID]; i+=1) {
@@ -264,30 +265,38 @@ static void update(wire_t *wires, int *costs, int dim_x, int dim_y, int num_wire
 
         update_route(newWire,costs,dim_x,dim_y,1);
         wires[i] = newWire;
+        newWire.index = i;
+        wiresTemp[(procID)*batch_size+f%batch_size] = newWire;
         if (procID < rem && i == displacements[procID] + counts[procID] - 1) {
             break;
         }
-        MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
-        for (int k = 0; k < nproc; k++) {
-            int index = displacements[k] + f;
-            update_route(wires[index], costs, dim_x, dim_y,-1);
-            wires[index] = wiresTemp[k];
-            update_route(wires[index], costs, dim_x, dim_y,1);
+        if(f%batch_size == 0 && f != 0) {
+            MPI_Allgather(&(wiresTemp[procID*batch_size]), batch_size, wireStruct, wiresTemp, batch_size, wireStruct, MPI_COMM_WORLD);
+            for (int k = 0; k < nproc*batch_size; k++) {
+                if (k/batch_size == procID) {
+                    continue;
+                }
+                wire_t temp = wiresTemp[k];
+                int index = temp.index; //
+                update_route(wires[index], costs, dim_x, dim_y,-1);
+                wires[index] = temp;
+                update_route(wires[index], costs, dim_x, dim_y,1);
+            }
         }
         f++;
     }
     // printf("thread %d got here! %d \n", procID, f);
 
     MPI_Barrier(MPI_COMM_WORLD);
-    if (rem > 0) {
-        MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
-        for (int k = 0; k < rem; k++) {
-            int index = displacements[k] + f;
-            update_route(wires[index], costs, dim_x, dim_y,-1);
-            wires[index] = wiresTemp[k];
-            update_route(wires[index], costs, dim_x, dim_y,1);
-        }
-    }
+    // if (rem > 0) {
+    //     MPI_Allgather(&newWire, 1, wireStruct, &wiresTemp, 1, wireStruct, MPI_COMM_WORLD);
+    //     for (int k = 0; k < rem; k++) {
+    //         int index = displacements[k] + f;
+    //         update_route(wires[index], costs, dim_x, dim_y,-1);
+    //         wires[index] = wiresTemp[k];
+    //         update_route(wires[index], costs, dim_x, dim_y,1);
+    //     }
+    // }
 }
 
 // Perform computation, including reading/writing output files
