@@ -379,8 +379,6 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
     /* Initialize cost matrix */
 
     // For Asynch Send and Recieve
-    wireValid_t *sendBuf = (wireValid_t *)calloc(nproc*batch_size, sizeof(wireValid_t));
-    wireValid_t *recvBuf = (wireValid_t *)calloc(nproc*batch_size, sizeof(wireValid_t));
 
     // Read Input File and Initialize Arrays
     if (procID == root) {
@@ -392,6 +390,10 @@ double compute(int procID, int nproc, char *inputFilename, double prob, int numI
         initialize(wires,costs,dim_x,dim_y,num_of_wires);
     }
     int batch_size = num_of_wires/nproc;
+
+    wireValid_t *sendBuf = (wireValid_t *)calloc(nproc*batch_size, sizeof(wireValid_t));
+    wireValid_t *recvBuf = (wireValid_t *)calloc(nproc*batch_size, sizeof(wireValid_t));
+
 
     // Create MPI Structs to send using MPI
     defineWireStruct(&wireStruct);
